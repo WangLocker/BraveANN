@@ -421,7 +421,6 @@ namespace SPTAG
     
             auto selected_centroids = xt::view(centroids, xt::keep(labels), xt::all()); // centroids[labels]
             auto s1 = std::chrono::high_resolution_clock::now();
-            //这一句占了0.76的时间
             xt::xarray<float> distances_to_centroids = xt::sum(xt::square(X - selected_centroids), {1});
             auto e1 = std::chrono::high_resolution_clock::now();
             std::chrono::duration<double> t1 = e1 - s1;
@@ -452,7 +451,6 @@ namespace SPTAG
             xt::xarray<float> phi = xt::zeros<float>({static_cast<size_t>(k)});
     
             auto selected_centroids = xt::view(centroids, xt::keep(labels), xt::all()); // centroids[labels]
-            //修改为双层for循环与OpenMP
             xt::xarray<float> distances_to_centroids = xt::sum(xt::square(X - selected_centroids), {1});
             
 
@@ -1123,7 +1121,6 @@ namespace SPTAG
             // float TempNotUsedLambda=InitCenters<T, R>(data, indices, first, last, args, samples, 3);
             // std::memcpy(args.centers, args.newTCenters, sizeof(T)*args._K*args._D);
             
-            //初始化
             kmeans_plus_plus_init(data.X, 1000, args);
 
             //test
@@ -1166,7 +1163,7 @@ namespace SPTAG
             double time_tilted=0;
             double time55=0;
             for(int j=0;j<num_epoch;j++){
-\                //-------------------first level----------------------------
+                //-------------------first level----------------------------
                 auto time_f0 = std::chrono::high_resolution_clock::now();
 
 
@@ -1198,7 +1195,7 @@ namespace SPTAG
                 std::chrono::duration<double> fir = time_f1 - time_f0;
                 time11+=fir.count();
                 //-------------------first level----------------------------
-\                //-------------------second level----------------------------
+                //-------------------second level----------------------------
                 auto time_s0 = std::chrono::high_resolution_clock::now();
                 if(num_batch>=32){
                     DistanceLabelResult batch_minDist_Labels = CalculateBatchDistancesAndLabels(data, indices.begin() + first, num_batch, args);
@@ -1221,7 +1218,7 @@ namespace SPTAG
                 //-------------------third level---------------------------
                 
                 auto selected_centroids = xt::view(args.centroids, xt::keep(labels_batch),xt::all());  // centroids[labels_batch]
-\                xt::xarray<float> gradients = xt::zeros<float>(batch.shape());
+                xt::xarray<float> gradients = xt::zeros<float>(batch.shape());
                 auto time_t0 = std::chrono::high_resolution_clock::now();
                 if(num_batch>=32){
                     CalGrad(batch,selected_centroids,gradients,num_batch,args._T);
@@ -1234,7 +1231,7 @@ namespace SPTAG
                 //-------------------third level---------------------------
                 //-------------------fouth level---------------------------
                 auto tilted0 = std::chrono::high_resolution_clock::now();
-\                xt::xarray<float> phi_batch = xt::zeros<float>({static_cast<size_t>(args._K)});
+                xt::xarray<float> phi_batch = xt::zeros<float>({static_cast<size_t>(args._K)});
                 // phi_batch = compute_tilted_sse_InEachCluster(batch, args.centroids, labels_batch, args._K, t);
                 // std::cout<<phi_batch<<std::endl;
                 if(num_batch>=32){
@@ -1282,8 +1279,7 @@ namespace SPTAG
             distances_batch_min = xt::adapt(batch_minDist_Labels.distances_min, {(last-first)});
             labels_batch = xt::adapt(batch_minDist_Labels.labels, {(last-first)});
             phi = compute_phi_batch(distances_batch_min,labels_batch,args._K,-0.01,(last-first),args._T);
-            float sum_phi = xt::sum(phi)();  // xt::sum(phi) 返回一个 0D xarray，需要加 () 取标量值
-            // 打印结果
+            float sum_phi = xt::sum(phi)();  
             std::cout << "Sum of all elements in phi: " << sum_phi << std::endl;
             auto time2 = std::chrono::high_resolution_clock::now();
             std::chrono::duration<double> seconds1 = time2 - time1;
