@@ -32,4 +32,4 @@ cd build && cmake .. && make
 After compiling and installing, the release (or debug) directory will contain executable files such as indexbuilder, indexsearcher, and ssdserving. These are used for index construction, performing searches using the index, and conducting overall experiments, respectively. For parameter configuration, ensure that the parameter configuration file is properly set up and specify its path when executing commands in the terminal.
 
 ## Info
-Our code implementation is based on SPANN. If you encounter issues related to project building, running, or parameter configuration, we kindly recommend referring to its documentation and issues for guidance.
+Our code implementation is based on SPANN. If you encounter any issues with project building, execution, or parameter configuration, we kindly suggest referring to its documentation and issues for guidance. Alternatively, feel free to reach out to me for assistance!
