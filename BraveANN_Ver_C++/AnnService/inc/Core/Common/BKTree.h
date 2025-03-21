@@ -421,23 +421,18 @@ namespace SPTAG
     
             auto selected_centroids = xt::view(centroids, xt::keep(labels), xt::all()); // centroids[labels]
             auto s1 = std::chrono::high_resolution_clock::now();
-            //这一句占了0.76的时间
             xt::xarray<float> distances_to_centroids = xt::sum(xt::square(X - selected_centroids), {1});
             auto e1 = std::chrono::high_resolution_clock::now();
             std::chrono::duration<double> t1 = e1 - s1;
 
             for (int j = 0; j < k; ++j) {
                 auto mask = xt::equal(labels, j);
-                //0.08
                 xt::xarray<float> mask_float = xt::cast<float>(mask);
-                //0.03
                 xt::xarray<float> masked_distances = t * distances_to_centroids * mask_float;
-                //0.12
                 phi(j) = (logsumexp(masked_distances) + std::log(1.0f / n_samples)) / t;
             }
             auto e0 = std::chrono::high_resolution_clock::now();
             std::chrono::duration<double> t0 = e0 - s0;
-            // std::cout<<" time cost percent inline: "<<(t1.count()/t0.count())<<"\n\n";
             return phi;
         }
 
@@ -452,7 +447,6 @@ namespace SPTAG
             xt::xarray<float> phi = xt::zeros<float>({static_cast<size_t>(k)});
     
             auto selected_centroids = xt::view(centroids, xt::keep(labels), xt::all()); // centroids[labels]
-            //修改为双层for循环与OpenMP
             xt::xarray<float> distances_to_centroids = xt::sum(xt::square(X - selected_centroids), {1});
             
 
@@ -486,82 +480,53 @@ namespace SPTAG
                 for(int j=0;j<num_epoch;j++){
                     //test
                     auto batch_indices = xt::random::randint<int>({num_batch}, 0, n_samples);
-                    //auto batch_indices = xt::load_npy<int>("/home/wym/workdir/spann_exp/temp/datasets/siftsmall/batch_indices_10000_128.npy");
-                    // std::cout << "batch_indices: " << batch_indices << std::endl;
-
                     auto batch = xt::view(X, xt::keep(batch_indices), xt::all());
-                    // std::cout << "batch: " << batch << std::endl;
 
                     auto batch_expanded = xt::view(batch, xt::all(), xt::newaxis(), xt::all());
                     auto distances_batch_expr = xt::norm_l2(batch_expanded - centroids, {2});
                     auto distances_batch = xt::eval(distances_batch_expr); 
-                    // std::cout << "distances_batch: " << distances_batch << std::endl;
 
                     auto distances_batch_min = xt::amin(distances_batch, {1});
-                    // std::cout << "distances_batch_min: " << distances_batch_min << std::endl;
                     auto sorted_indices = xt::argsort(distances_batch, 1);
-                    // std::cout << "sorted_indices: " << sorted_indices << std::endl;
                     auto labels_batch = xt::view(sorted_indices, xt::all(), 0);
-                    // std::cout << "labels_batch: " << labels_batch << std::endl;
 
                     auto selected_centroids = xt::view(centroids, xt::keep(labels_batch),xt::all());  // centroids[labels_batch]
                     xt::xarray<float> gradients = 2 * (batch - selected_centroids);
-                    // std::cout << "gradients: " << gradients << std::endl;
 
                     xt::xarray<float> phi_batch = compute_tilted_sse_InEachCluster(batch, centroids, labels_batch, k, t);
-                    // std::cout << "phi_batch: " << phi_batch << std::endl;
 
                     for (int j = 0; j < k; ++j) {
                         float phi_j_exp = std::exp(t * phi(j));
                         float phi_batch_j_exp = std::exp(t * phi_batch(j));
                         phi(j) = (1.0f / t) * std::log((1 - mu) * phi_j_exp + mu * phi_batch_j_exp);
                     }
-                    // std::cout << "phi: " << phi << std::endl;
 
                     auto phi_labels_batch = xt::index_view(phi, labels_batch);
                     auto weights_batch_expr = xt::exp(t * (distances_batch_min - phi_labels_batch)) / num_batch;
                     auto weights_batch = xt::eval(xt::reshape_view(weights_batch_expr, {num_batch, 1}));   
-                    // std::cout << "weights_batch: " << weights_batch << std::endl;
 
                     auto repeated_weights = xt::eval(xt::repeat(weights_batch, gradients.shape(1), 1));
                     xt::xarray<float> weighted_gradients = repeated_weights * gradients;
-                    // std::cout << "weighted_gradients: " << weighted_gradients << std::endl;
 
                     xt::xarray<float> delta_centroids = xt::zeros<float>({static_cast<size_t>(k), gradients.shape(1)});
-                    // std::cout << "delta_centroids_000: " << delta_centroids << std::endl;
 
                     for (std::size_t i = 0; i < labels_batch.size(); ++i) {
                         int cluster_id = labels_batch(i);
                         xt::view(delta_centroids, cluster_id, xt::all()) += xt::view(weighted_gradients, i, xt::all());
                     }
-                    // std::cout << "delta_centroids: " << delta_centroids << std::endl;
-                    // update centroids
-                    // std::cout << "centroids_before: " << centroids << std::endl;
+
                     centroids += lr * delta_centroids;
-                    // std::cout << "centroids_after: " << centroids << std::endl;
                 }
                 auto end_1_for = std::chrono::high_resolution_clock::now();
                 std::chrono::duration<double> elapsed_seconds1for = end_1_for - start_1_for;
-                //compute_loss
                 auto start_l_up = std::chrono::high_resolution_clock::now();
-                //___________________________________________________cost most_____________________________________________________________
 
 
-
-                //two for loop and OpenMP
                 auto s_l1 = std::chrono::high_resolution_clock::now();
                 auto distances_expanded = xt::view(X, xt::all(), xt::newaxis(), xt::all());
                 auto e_l1 = std::chrono::high_resolution_clock::now();
                 std::chrono::duration<double> elapsed_seconds_l1 = e_l1-s_l1;
                 
-                // auto s_l2 = std::chrono::high_resolution_clock::now();
-                // auto diff = distances_expanded - centroids;
-                // auto squared_diff = diff * diff;
-                // auto sum_squared_diff = xt::sum(squared_diff, {2});
-                // auto distances = xt::sqrt(sum_squared_diff);
-                // auto e_l2 = std::chrono::high_resolution_clock::now();
-                // std::chrono::duration<double> elapsed_seconds_l2 = e_l2-s_l2;
-                // line_2 += elapsed_seconds_l2.count();
 
 
                 auto s_l2 = std::chrono::high_resolution_clock::now();
@@ -591,12 +556,9 @@ namespace SPTAG
 
 
 
-                //___________________________________________________cost most_____________________________________________________________
                 auto end_l_up = std::chrono::high_resolution_clock::now();
                 std::chrono::duration<double> elapsed_secondsupl = end_l_up-start_l_up;
-                // auto selected_centroids_X = xt::view(centroids, xt::keep(labels),xt::all());
-                // auto sse_expr = xt::sum(xt::square(X - selected_centroids_X));
-                // float SSE = sse_expr();
+
                 float tilted_SSE = compute_tilted_sse(X,centroids,labels,k,t,n_samples); 
                 std::cout<<"iteration  "<<i<<"  "<<tilted_SSE<<std::endl;
             }
@@ -1014,7 +976,6 @@ namespace SPTAG
             SizeType randid = COMMON::Utils::rand(last, first);
             std::memcpy(args.centers, data[indices[randid]], sizeof(T) * args._D);
             args.counts[0] = 1;
-            //先注释掉下面这些方便debug
             std::vector<float> distToClosestCenter(last - first, MaxDist);
 
             for (int k = 1; k < args._K; k++) {
@@ -1022,11 +983,7 @@ namespace SPTAG
                 SizeType nextCenterIdx = SelectNextCenter(distToClosestCenter, first, last, totalDist);
                 std::memcpy(args.centers + k * args._D, data[indices[nextCenterIdx]], sizeof(T) * args._D);
             }
-            // for(int i=1;i<32;i++){
-            //     SizeType randid = COMMON::Utils::rand(last, first);
-            //     std::memcpy(args.centers+i*args._D, data[indices[randid]], sizeof(T) * args._D);
-            //     args.counts[i] = 1;
-            // }
+
             return 0.;
         }
 
@@ -1044,7 +1001,6 @@ namespace SPTAG
                 args.ClearDists(-MaxDist);
                 
                 currDist = KmeansAssign_normalKM_init<T,R>(data, indices, first, last, args, true, 0);
-                // std::cout<<"KM++ LOSS: "<<currDist<<std::endl;        
                 if (std::abs(currDist - prevDist) <1e-3) {round2stop++;}
                 if (round2stop==3){break;}
                 prevDist = currDist;
@@ -1190,20 +1146,10 @@ namespace SPTAG
             std::vector<SizeType>& indices, const SizeType first, const SizeType last,
             KmeansArgs<T>& args, int samples = 1000, float lambdaFactor = 100.0f, bool debug = false, IAbortOperation* abort = nullptr) {
 
-            // float TempNotUsedLambda=InitCenters<T, R>(data, indices, first, last, args, samples, 3);
-            // std::memcpy(args.centers, args.newTCenters, sizeof(T)*args._K*args._D);
-            
-            //初始化
             kmeans_plus_plus_init(data.X, 1000, args);
 
-            //test
-            // args.centroids = xt::load_npy<float>("/home/wym/workdir/spann_exp/temp/datasets/siftsmall/centroids.npy");
-            // args.labels = xt::load_npy<int>("/home/wym/workdir/spann_exp/temp/datasets/siftsmall/labels.npy");
-            std::cout<<"data.X\n\n"<<data.X<<"\n\n";
-            std::cout<<"centroids\n\n"<<args.centroids<<"\n\n";
-            std::cout<<"labels\n\n"<<args.labels<<"\n\n";
             xt::xarray<float> phi=compute_tilted_sse_InEachCluster(data.X,args.centroids,args.labels,args._K,-0.1);
-            std::cout<<"phi\n\n"<<phi<<"\n\n";
+
             r3km(data.X,-0.1,args._K,10,0.5,args.centroids,args.labels,phi,100,1000);
 
             // return 0;
@@ -1272,12 +1218,6 @@ namespace SPTAG
         }
 
 
-        // for (std::size_t i = 0; i < labels_batch.size(); ++i) {
-        //                 int cluster_id = labels_batch(i);
-        //                 xt::view(delta_centroids, cluster_id, xt::all()) += xt::view(weighted_gradients, i, xt::all());
-        //             }
-        //             args.centroids += lr * delta_centroids;
-
         void inline CalDeltaCen(xt::xarray<float>& delta_centroids, xt::xarray<int>& labels_batch, xt::xarray<float>& weights_gradients, 
                     SizeType num_batch, int num_threads) {
 
@@ -1334,7 +1274,7 @@ namespace SPTAG
                     int index = batch_indices(i);
                     const float* row_ptr = reinterpret_cast<const float*>(data.At(index));
                     for (int j = 0; j < d; ++j) {
-                        batch(i, j) = row_ptr[j]; // 转换为 float 存储到 batch
+                        batch(i, j) = row_ptr[j]; 
                     }
                 }
             }
@@ -1375,10 +1315,10 @@ namespace SPTAG
                     GetBatchData(data,batch_indices,args._D,num_batch,args._T,batch);
                 }else{
                     for (int i = 0; i < num_batch; ++i) {
-                        int index = batch_indices(i); // 获取当前索引
-                        const float* row_ptr = reinterpret_cast<const float*>(data.At(index)); // 指向第 index 行的首地址
+                        int index = batch_indices(i); 
+                        const float* row_ptr = reinterpret_cast<const float*>(data.At(index)); 
                         for (int j = 0; j < args._D; ++j) {
-                            batch(i, j) = row_ptr[j]; // 转换为 float 存储到 batch
+                            batch(i, j) = row_ptr[j]; 
                         }
                     }
                 }
@@ -1421,7 +1361,6 @@ namespace SPTAG
                 }
 
                 xt::xarray<float> weights_batch = xt::zeros<float>({num_batch, 1});
-                //批次的权重计算
                 auto phi_labels_batch = xt::index_view(phi, labels_batch);
                 if(num_batch>=32){
                     CalWeightsBatch(phi_labels_batch,distances_batch_min,num_batch,t,args._T,weights_batch);
@@ -1429,7 +1368,6 @@ namespace SPTAG
                     auto weights_batch_expr = xt::exp(t * (distances_batch_min - phi_labels_batch)) / num_batch;
                     weights_batch = xt::eval(xt::reshape_view(weights_batch_expr, {num_batch, 1}));
                 }
-                //批次的加权梯度计算
                 xt::xarray<float> weighted_gradients;
                 if(num_batch>=32){
                     CalWeightsGrad(weights_batch,gradients,weighted_gradients,num_batch,args._T);
@@ -1437,7 +1375,6 @@ namespace SPTAG
                     auto repeated_weights = xt::eval(xt::repeat(weights_batch, gradients.shape(1), 1));
                     weighted_gradients = repeated_weights * gradients;
                 }
-                //中心的更新量计算并更新中心 
                 xt::xarray<float> delta_centroids = xt::zeros<float>({static_cast<size_t>(args._K), gradients.shape(1)});
                 if(num_batch>=32){
                     CalDeltaCen(delta_centroids,labels_batch,weighted_gradients,num_batch,args._T);
@@ -1457,7 +1394,6 @@ namespace SPTAG
         float TryRClustering_new(const Dataset<T>& data,
             std::vector<SizeType>& indices, const SizeType first, const SizeType last,
             KmeansArgs<T>& args, int samples = 1000, float lambdaFactor = 100.0f, bool debug = false, IAbortOperation* abort = nullptr) {
-            // std::cout<<data.X<<std::endl;
             float lambda=0.;
             //the SSE just after the init step
             float currDist=KMeansPlusPlus<T,R>(data,indices,first,last,args,100,lambda);
@@ -1472,24 +1408,18 @@ namespace SPTAG
             labels_batch = xt::adapt(batch_minDist_Labels.labels, {(last-first)});
             phi = compute_phi_batch(distances_batch_min,labels_batch,args._K,-0.01,(last-first),args._T);
 
-            //r3km(data.X,-0.1,args._K,10,0.5,args.centroids,args.labels,phi,50,1000,0.5);
-
-            // SizeType batchEnd = min(first + samples, last);
-            // float currDist, minClusterDist = MaxDist;
             float minClusterDist = MaxDist;
             int noImprovement = 0;
             float originalLambda = COMMON::Utils::GetBase<T>() * COMMON::Utils::GetBase<T>() / lambdaFactor / (last - first);
             int rounds2stop =0;
             float prev_ttSSE=0;
             for (int iter = 0; iter < 20; iter++) {
-                // std::cout<<"[ITER "<<iter<<"] :"<<" "<< currDist <<std::endl;
-                //std::memcpy(args.centers, args.newTCenters, sizeof(T)*args._K*args._D);
+
                 args.ClearCenters();
                 args.ClearCounts();
                 args.ClearDists(-MaxDist);
                 FastRKM_Up_Center<T,R>(data,indices,first,last,args,phi,-0.01f,1,0.05f,min(originalLambda,lambda));
-                // std::memcpy(args.counts, args.newCounts, sizeof(SizeType) * args._K);
-                // std::cout<<"iteration "<<iter<<"  over"<<std::endl;
+
                 float newDist = KmeansAssign_afterF<T,R>(data, indices, first, last, args, false, min(originalLambda,lambda));
                 if (std::abs(newDist-currDist)<1e-3){
                     rounds2stop++;
